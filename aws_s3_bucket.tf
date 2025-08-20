@@ -7,11 +7,7 @@ provider "aws" {
 # This bucket is missing encryption and versioning
 resource "aws_s3_bucket" "non_compliant_data_lake" {
   bucket = "my-company-non-compliant-data-12345" # Must be globally unique
-  tags = {
-    Name        = "Non-Compliant Data Lake"
-    Environment = "Production" # Missing CostCenter tag
-  }
-}
+
 
 # A better configured bucket for comparison
 resource "aws_s3_bucket" "compliant_log_bucket" {
