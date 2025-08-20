@@ -7,6 +7,7 @@ on:
 jobs:
   dependency-scan:
     runs-on: ubuntu-latest
+    # This job will always pass for Terraform repos since there's no package.json
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -16,13 +17,27 @@ jobs:
         with:
           node-version: '18'
 
-      - name: Install dependencies
+      - name: Check for package.json and skip if not found
+        id: check-package
+        run: |
+          if [ -f "package.json" ]; then
+            echo "package_exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "package_exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Install dependencies (if package.json exists)
+        if: steps.check-package.outputs.package_exists == 'true'
         run: npm install
 
-      - name: Run Dependabot SCA scan
-        # ONLY run this step if the event is a pull_request
-        if: github.event_name == 'pull_request'
+      - name: Run Dependabot SCA scan (if package.json exists)
+        if: steps.check-package.outputs.package_exists == 'true'
         uses: actions/dependency-review-action@v3
+
+      - name: Skip SCA scan (no package.json)
+        if: steps.check-package.outputs.package_exists == 'false'
+        run: echo "No package.json found - SCA scan skipped successfully"
+        # This step ensures the job passes even without Node.js dependencies
 
   codeql-sast-scan:
     runs-on: ubuntu-latest
@@ -30,23 +45,40 @@ jobs:
       security-events: write
       actions: read
       contents: read
+    # This job will pass for Terraform-only repos
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Initialize CodeQL
+      - name: Check for source code files
+        id: check-src
+        run: |
+          if [ -d "src" ] || [ -d "app" ] || [ -f "*.js" ] || [ -f "*.ts" ] || [ -f "*.py" ]; then
+            echo "source_code_exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "source_code_exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Initialize CodeQL (if source code exists)
+        if: steps.check-src.outputs.source_code_exists == 'true'
         uses: github/codeql-action/init@v2
         with:
           languages: javascript
 
-      - name: Perform CodeQL Analysis
+      - name: Perform CodeQL Analysis (if source code exists)
+        if: steps.check-src.outputs.source_code_exists == 'true'
         uses: github/codeql-action/analyze@v2
 
-  # JOB 3: Compliance as Code Scanning
+      - name: Skip CodeQL scan (no source code)
+        if: steps.check-src.outputs.source_code_exists == 'false'
+        run: echo "No source code files found - CodeQL scan skipped successfully"
+        # This step ensures the job passes for Terraform-only repos
+
+  # JOB 3: Compliance as Code Scanning - THIS WILL FAIL FOR NON-COMPLIANT TERRAFORM
   compliance-scan:
     name: Compliance Scan (Checkov)
     runs-on: ubuntu-latest
-    # This job can run in parallel with the SAST and SCA jobs
+    # This job will FAIL when Terraform violations are found
     steps:
       # Step 1: Obtain the code from the repository
       - name: Checkout code
@@ -60,6 +92,11 @@ jobs:
           directory: ./
           # Display detailed results in the workflow log
           quiet: false
-          # (Optional) Only output failed checks for a cleaner log
-          # output_format: cli # Remove 'quiet: false' if using this
-        # A non-zero exit code from Checkov (if failures are found) will fail this step.
+          # Fail the job if any compliance violations are found
+          fail_on: FAILURE
+        # A non-zero exit code from Checkov will fail this step
+
+      # Optional: Add a success message if you want (though Checkov failure will prevent this from running)
+      - name: Compliance check passed
+        if: success()
+        run: echo "All Terraform resources are compliant!"
