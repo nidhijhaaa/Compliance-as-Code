@@ -1,0 +1,65 @@
+name: Security Scanning (SAST & SCA)
+
+on:
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  dependency-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run Dependabot SCA scan
+        # ONLY run this step if the event is a pull_request
+        if: github.event_name == 'pull_request'
+        uses: actions/dependency-review-action@v3
+
+  codeql-sast-scan:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v2
+        with:
+          languages: javascript
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v2
+
+  # JOB 3: Compliance as Code Scanning
+  compliance-scan:
+    name: Compliance Scan (Checkov)
+    runs-on: ubuntu-latest
+    # This job can run in parallel with the SAST and SCA jobs
+    steps:
+      # Step 1: Obtain the code from the repository
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Step 2: Execute Checkov static analysis
+      - name: Run Checkov scan
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          # Scan the entire repository for IaC files
+          directory: ./
+          # Display detailed results in the workflow log
+          quiet: false
+          # (Optional) Only output failed checks for a cleaner log
+          # output_format: cli # Remove 'quiet: false' if using this
+        # A non-zero exit code from Checkov (if failures are found) will fail this step.
